@@ -1,4 +1,6 @@
+import matplotlib
 from numpy import ndarray
+from mediawikilogger.MediaWikiLogger import id_generator
 
 
 def code_formatter(code_dict):
@@ -16,17 +18,29 @@ def code_formatter(code_dict):
                     </div>\n</div>""" % code_dict
 
 
-def dict_formatter(dict_dict):
-    c = len(cols) + 1 - int(rows is None)
-    s = """{| class=\"wikitable sortable\"\n|-\n! %s \n""" % \
-        (" !! ".join(int(rows is not None) * [''] + [str(e) for e in cols]),)
-    for k, row in enumerate(cont):
-        if isinstance(row,list) or type(row) is ndarray:
-            r = [str(c) for c in row]
-        else:
-            r = [str(row)]
-        if rows is not None:
-            r = [rows[k]] + r
-        s += "|-\n| %s \n" % (" || ".join(r),)
-    s += "|}"
-    return s
+# def dict_formatter(dict_dict):
+#     c = len(cols) + 1 - int(rows is None)
+#     s = """{| class=\"wikitable sortable\"\n|-\n! %s \n""" % \
+#         (" !! ".join(int(rows is not None) * [''] + [str(e) for e in cols]),)
+#     for k, row in enumerate(cont):
+#         if isinstance(row,list) or type(row) is ndarray:
+#             r = [str(c) for c in row]
+#         else:
+#             r = [str(row)]
+#         if rows is not None:
+#             r = [rows[k]] + r
+#         s += "|-\n| %s \n" % (" || ".join(r),)
+#     s += "|}"
+#     return s
+
+def figure_formatter(fig, filename=None, width=800, format='png'):
+    if filename is None:
+        filename = id_generator(20) + '.' + format
+    fig.savefig(filename)
+    return "[[File:%s]]" % (filename, )
+
+format_factory = {
+    matplotlib.figure.Figure: figure_formatter,
+}
+
+

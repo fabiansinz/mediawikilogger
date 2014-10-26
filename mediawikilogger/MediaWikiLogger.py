@@ -10,17 +10,13 @@ import socket
 import matplotlib
 
 import git
-from mediawikilogger.Formatters import dict_formatter
+from mediawikilogger.Formatters import code_formatter, figure_formatter, format_factory
 
 
 def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
     return ''.join(random.choice(chars) for x in range(size))
 
-def figure_format(fig, filename=None, width=800, format='png'):
-    if filename is None:
-        filename = id_generator(20) + '.' + format
-    fig.savefig(filename)
-    return "[[File:%s]]" % (filename, )
+
 
 
 
@@ -67,7 +63,9 @@ class MediaWikiLogger:
         if lineNo in self.content:
             raise KeyError("Line Number %i already exists!" % lineNo)
         else:
-            self.content[lineNo] = formatfunc(cont)
+            tmp = formatfunc(cont)
+            self.content[lineNo] = tmp
+            return tmp
 
     def add_code(self, obj=None, file=None, title='no code title given', lang=None):
         if obj is not None:
@@ -108,6 +106,7 @@ class MediaWikiLogger:
                         mod['name'] = name
                         mod['info'] = []
                         mods[name] = mod
+
                         info = imp.find_module(mod['name'])
                         
                         self.add_repo(name, info[1])
@@ -122,36 +121,22 @@ class MediaWikiLogger:
 
                         mods[name] = mod
             
-    def add(self, stuff, formatfunc=None):
-        """
-        Adds anything in stuff to the Journal. Stuff could be a string
-        or anything from the list below (matplotlib.figure.Figure). If
-        formatfunc is specified, it is used to format stuff.
-
-        If a figure is added, a random filename is generated.
-        """
+    def add(self, element, **kwargs):
         c = inspect.currentframe()
-        if type(stuff) == matplotlib.figure.Figure:
-            self.add_content(inspect.getouterframes(c)[-1][2], stuff, \
-                               formatfunc=lambda fig: \
-                               figure_format(fig, filename=None, width=800, format='png'))
+        if type(element) != str:
+            return self.add_content(inspect.getouterframes(c)[-1][2], format_factory[type(element)](element, **kwargs))
         else:
-            self.add_content(inspect.getouterframes(c)[-1][2], stuff, formatfunc=formatfunc)
-
+            return self.add_content(inspect.getouterframes(c)[-1][2], element)
 
     def _parse_comments(self, f):
-        """
-        Parses for anything starting with #@ in the script file.
-        """
-        
         with open(f, 'r') as fid:
             for k, l in enumerate(fid.readlines()):
                 l = l.lstrip()
                 if l.startswith("#@"):
-                    self.add_content(k, l[2:].lstrip().rstrip())
+                    self.add_content(k, l[2:].strip())
                         
 
-
+    # TODO rewrite str
     def __str__(self):
         now = datetime.datetime.now()
         infofunc = lambda  a: "(" + ", ".join(a) + ')' if len(a) > 0 else ''
