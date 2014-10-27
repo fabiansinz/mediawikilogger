@@ -65,10 +65,9 @@ class MediaWikiLogger:
                 L = fid.read()
         else:
             with open(sys.argv[0]) as fid:
-                L = fid.readlines()
-                L = '\n'.join([l for l in fid.readlines() if not l.lstrip().startswith("#@")])
+                L = ''.join([l for l in fid.readlines() if not l.lstrip().startswith("#@")])
             
-        return self.add(code_formatter({'code':L, 'description':title, 'lang': 'python' if lang is None else lang}))
+        return self.add(code_formatter({'code':L, 'title':title, 'lang': 'python' if lang is None else lang}))
 
     def add_repo(self, name, direc):
         """

@@ -15,6 +15,15 @@ def filelink(col):
     """
     return ["[[File:%s]]" % (e, ) for e in col]
 
+def medialink(col):
+    """
+    Converts a list of strings into mediawiki medialinks.
+
+    :param col: list of strings (usually filenames)
+    :return: reformated col
+    """
+    return ["[[Media:%s]]" % (e, ) for e in col]
+
 
 def id_generator(size=6, chars=list(string.ascii_uppercase + string.digits)):
     return ''.join(random.choice(chars) for x in range(size))
