@@ -1,53 +1,34 @@
 import sys
-import imp
 import inspect
 import datetime
 import string
 import random
 import os
 import socket
-
-import matplotlib
-
+from IPython import embed
+import pandas as pd
 import git
-from mediawikilogger.Formatters import code_formatter, figure_formatter, format_factory
+import importlib
 
-
-def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
-    return ''.join(random.choice(chars) for x in range(size))
-
-
-
-
-
-def gallery_format(elem):
-    figformat = elem[2]
-    captions = elem[1]
-    elem = elem[0]
-    if captions is None:
-        captions = len(elem)*['no caption']
-    
-    s = "<gallery>\n"
-    for fig,cap in zip(elem,captions):
-        if not isinstance(fig,str):
-            filename = id_generator(20) + '.' + figformat
-            fig.savefig(filename)
-        else:
-            filename = fig
-        s += "File:%s|%s\n" % (filename,cap)
-        
-    s += "</gallery>\n"
-    return s
+from mediawikilogger.Formatters import code_formatter, format_factory, dataframe_formatter, gallery_formatter
 
 
 class MediaWikiLogger:
+    """
+    MediaWikiLogger is a simple class that, when instantiated, extracts context information from a python script
+    and outputs it in mediawiki format when printed or saved.
 
+    Every line comment that starts with #@ will be included in the mediawiki text.
+
+    Additionally, matplotlib figures, pandas dataframes, and lists of matplotlib figures can be added to the
+    logger.
+    """
     def __init__(self, categories=None):
         self.content = {}
         self.mods = {}
         self._parse_comments(sys.argv[0])
         self._parse_modules(sys.argv[0])
-        self.startTime = datetime.datetime.now()
+        self.start_time = datetime.datetime.now()
         self.categories = categories
 
         self.python_version = "python %i.%i.%i %s" % (sys.version_info.major, sys.version_info.minor,
@@ -56,7 +37,7 @@ class MediaWikiLogger:
         self.directory = os.path.realpath(inspect.getouterframes(inspect.currentframe())[-1][1])
 
 
-    def add_content(self, lineNo, cont, formatfunc=None):
+    def _add_content(self, lineNo, cont, formatfunc=None):
         if formatfunc is None:
             formatfunc = lambda x: x
 
@@ -68,6 +49,14 @@ class MediaWikiLogger:
             return tmp
 
     def add_code(self, obj=None, file=None, title='no code title given', lang=None):
+        """
+        Adds the code of the file itself, a python function/module, or a file into the logging result.
+
+        :param obj: Python function or module.
+        :param file: Filename of a file containing code.
+        :param title: Title for the code element on the mediawiki page.
+        :param lang: programming language
+        """
         if obj is not None:
             L = inspect.getsource(obj)
         elif file is not None: 
@@ -78,17 +67,20 @@ class MediaWikiLogger:
                 L = fid.readlines()
                 L = '\n'.join([l for l in fid.readlines() if not l.lstrip().startswith("#@")])
             
-        self.add(code_formatter({'code':L, 'description':title, 'lang': 'python' if lang is None else lang}))
+        return self.add(code_formatter({'code':L, 'description':title, 'lang': 'python' if lang is None else lang}))
 
     def add_repo(self, name, direc):
         """
-        Adds a repository to the repository list of the Journal.
+        Adds a git repository to the information.
+
+        :param name: Name of the respository (can be freely chosen)
+        :param direc: absolute path of the git directory
         """
-        # check whether it is a git version
         try:
             repo = git.Repo(direc)
-            self.mods[name]['info'].append("commit " + repo.head.commit.name_rev)
-            self.mods[name]['info'].append("branch " + repo.git.branch().split()[1])
+
+            self.mods[name]['info'].append("branch " + repo.active_branch)
+            self.mods[name]['info'].append("commit " + str(repo.commits(repo.active_branch)[0]))
             if repo.git.status().find("modified") >= 0:
                 self.mods[name]['info'].append("modified files")
         except:
@@ -107,62 +99,107 @@ class MediaWikiLogger:
                         mod['info'] = []
                         mods[name] = mod
 
-                        info = imp.find_module(mod['name'])
-                        
-                        self.add_repo(name, info[1])
+                        themod = importlib.import_module(name)
+                        try:
+                            directory = os.path.dirname(inspect.getfile(themod))
+                            self.add_repo(name, directory)
+                        except TypeError:
+                            pass
 
-                        # get versions if possible
-                        tmp = imp.load_module(mod['name'], *info)
-                        
-                        if hasattr(tmp, '__version__'):
-                            mod['info'].append('v. ' + tmp.__version__)
-                        tmp = None
-                   
-
+                        if hasattr(themod, '__version__'):
+                            mod['info'].append('v. ' + themod.__version__)
                         mods[name] = mod
             
     def add(self, element, **kwargs):
-        c = inspect.currentframe()
-        if type(element) != str:
-            return self.add_content(inspect.getouterframes(c)[-1][2], format_factory[type(element)](element, **kwargs))
+        """
+        Adds an element to the logging result.
+
+        :param element: new element in the logging results
+        :param kwargs: if formatfunc is in the kwargs, the element is formated with
+                        that function other kwargs are passed to this format function.
+        """
+        if 'formatfunc' in kwargs:
+            formatfunc = kwargs.pop('formatfunc')
+        elif type(element) == str:
+            formatfunc = lambda x: x
         else:
-            return self.add_content(inspect.getouterframes(c)[-1][2], element)
+            formatfunc = format_factory[type(element)]
+
+        c = inspect.currentframe()
+        return self._add_content(inspect.getouterframes(c)[-1][2], formatfunc(element, **kwargs))
+
+
+    def add_gallery(self, gallery, **kwargs):
+        """
+        Adds a mediawiki gallery of figures.
+
+        :param gallery: Either a list of figure handles, a dictionary with figure handles as keys and captions
+                as values, or a dictionary with filenames of already saved figures as keys and captions as values.
+        """
+        self.add(gallery, formatfunc=gallery_formatter, **kwargs)
+
+    def __add__(self, other):
+        return self.add(other)
 
     def _parse_comments(self, f):
+        curr_str = ""
+        old_line = -5
         with open(f, 'r') as fid:
             for k, l in enumerate(fid.readlines()):
                 l = l.lstrip()
                 if l.startswith("#@"):
-                    self.add_content(k, l[2:].strip())
+                    if old_line + 1 == k:
+                        curr_str += " " + l[2:].strip()
+                        old_line = k
+                    else:
+                        if len(curr_str) > 0:
+                            self._add_content(old_line,  "\n" + curr_str + "\n")
+                        curr_str = l[2:].strip()
+                        old_line = k
+            else:
+                if len(curr_str) > 0:
+                    self._add_content(old_line, "\n" + curr_str + "\n")
+
                         
-
-    # TODO rewrite str
     def __str__(self):
+        info = pd.DataFrame(columns=["Parameter", "Settings"])
         now = datetime.datetime.now()
-        infofunc = lambda  a: "(" + ", ".join(a) + ')' if len(a) > 0 else ''
-        libs = "\n" + "\n".join(["* %s %s" % (e['name'], infofunc(e['info'])) for e in self.mods.values()])
-        
-        ret = """
-{{experiment
-| started = %02i/%02i/%04i
-| finished = %02i/%02i/%04i
-| directory = %s
-| host = %s
-| proglangs = %s
-| libs = %s
-}}
+        counter = 0
 
-""" % (self.startTime.month, self.startTime.day, self.startTime.year, \
-               now.month, now.day, now.year,  self.directory,socket.gethostname(), self.category,
-               self.subcategory, self.python_version, libs, self.data)
-        out = list(self.content)
-        ret += "\n\n".join([e[2](e[1]) for e in out])
-        ret = ret.replace("\\\n\n", " ")
-        return ret
-        
+        ret = ["[[Category:%s]]"  % (e,) for e in self.categories]
+
+        info.loc[counter] = ['Running time', "%s - %s" % (str(self.start_time), str(now))]
+        counter += 1
+
+
+        info.loc[counter] = ['Running Directory', self.directory ]
+        counter += 1
+
+        info.loc[counter] = ['Host', socket.gethostname()]
+        counter += 1
+
+        info.loc[counter] = ['Python version', self.python_version]
+        counter += 1
+
+        infofunc = lambda  a: "(" + ", ".join(a) + ')' if len(a) > 0 else ''
+        info.loc[counter] = ['Libraries',
+                       "\n" + "\n".join(["* %s %s" % (e['name'], infofunc(e['info'])) for e in self.mods.values()])]
+        counter += 1
+
+        info.set_index("Parameter", inplace=True)
+        ret.append("=Information=\n\n%s" % (dataframe_formatter(info, index=True), ))
+
+        for _, c in sorted(self.content.items(), key=lambda e: e[0]):
+            ret.append(c)
+
+        return "\n".join(ret)
+
+
     def save(self, filename):
         """
-        Saves the Journal to a text file filename.
+        Saves the mediawiki page to a file.
+
+        :param filename: filename  
         """
         with open(filename, 'w') as fid:
             fid.write(self.__str__())
