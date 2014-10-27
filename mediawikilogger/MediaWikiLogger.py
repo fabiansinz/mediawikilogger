@@ -1,3 +1,4 @@
+import re
 import sys
 import inspect
 import datetime
@@ -91,24 +92,35 @@ class MediaWikiLogger:
             L = fid.readlines()
             mods = self.mods
             for l in L:
-                if l.lstrip().startswith("import") or (l.lstrip().startswith("from") and "import" in l):
-                    name = l.split()[1].split('.')[0]
-                    if not mods.has_key(name):
-                        mod = {}
-                        mod['name'] = name
-                        mod['info'] = []
-                        mods[name] = mod
+                if l.startswith("from") or l.startswith("import"):
+                    hits =  re.findall("([a-zA-Z0-9_\.]+)+,?", l)
+                    mymods = []
+                    for i, h in enumerate(hits):
+                        if h == 'as':
+                            break
+                        if h == 'import' and i > 0:
+                            break
+                        if h not in ['from', 'import']:
+                            mymods.append(h)
 
-                        themod = importlib.import_module(name)
-                        try:
-                            directory = os.path.dirname(inspect.getfile(themod))
-                            self.add_repo(name, directory)
-                        except TypeError:
-                            pass
+                    for mymod in mymods:
+                        name = mymod.split('.')[0]
+                        if not mods.has_key(name):
+                            mod = {}
+                            mod['name'] = name
+                            mod['info'] = []
+                            mods[name] = mod
 
-                        if hasattr(themod, '__version__'):
-                            mod['info'].append('v. ' + themod.__version__)
-                        mods[name] = mod
+                            themod = importlib.import_module(name)
+                            try:
+                                directory = os.path.dirname(inspect.getfile(themod))
+                                self.add_repo(name, directory)
+                            except TypeError:
+                                pass
+
+                            if hasattr(themod, '__version__'):
+                                mod['info'].append('v. ' + themod.__version__)
+                            mods[name] = mod
             
     def add(self, element, **kwargs):
         """
